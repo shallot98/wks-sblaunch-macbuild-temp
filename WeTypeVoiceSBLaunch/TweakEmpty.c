@@ -55,8 +55,11 @@ static double gTokUntil;     /* voice-launch token: this suspended open is ours 
 static double gQuietUntil;   /* debounce so our own retire does not loop */
 static double gLastKick;
 static int gTokRetired;
+static int gActivated;      /* this wxkb instance already got a real activation */
 static int gInstalled;
 static int gApplyHooked;
+static int gApplyReported;
+static int gSceneReported;
 static int gProbed;
 static int gNotifyRegistered;
 
@@ -107,6 +110,8 @@ static void mark_voice(const char *why) {
 
 /* ---------- voice-launch token ---------- */
 
+static pid_t wxkb_pid(void);
+
 static int token_valid(void) {
     if (gTokUntil <= 0.0) return 0;
     if (now_s() >= gTokUntil) {
@@ -121,6 +126,7 @@ static int token_valid(void) {
 static void token_grant(const char *why) {
     gTokUntil = now_s() + 20.0;
     gTokRetired = 0;
+    if (wxkb_pid() <= 0) gActivated = 0;
     hb("token");
     wlog("token grant 20s (%s)", why);
 }
@@ -454,14 +460,43 @@ static void repl_fb_open(id self, SEL cmd, id app, id opts, id origin, id req, i
 /* iOS 16.1.2 has no FBSceneManager _applyMutableSettings: any more; the live
  * entry points are the FBScene update/perform families. Hook all of them and
  * report by heartbeat which one a WeType transition actually goes through. */
+/* A process launched *into* a suppressed scene never finishes activating: it is
+ * suspended and reaped within ~1.5s, so recording cannot start. Cold launches
+ * therefore get activated normally and are retired a moment later; once the app
+ * has proven it is alive, later transitions are suppressed inline (no flash). */
+static void schedule_retire(id scene) {
+    if (gTokRetired) return;
+    gTokRetired = 1;
+    id held = ((id (*)(id, SEL))objc_msgSend)(scene, sel_registerName("retain"));
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (token_valid() && resp(held, "updateSettingsWithBlock:")) {
+            void (^blk)(id) = ^(id st) { pin_bg(st); };
+            ((void (*)(id, SEL, id))objc_msgSend)(
+                held, sel_registerName("updateSettingsWithBlock:"), (id)_Block_copy(blk));
+            hb("retire");
+            wlog("retired wetype scene after activation");
+        }
+        ((void (*)(id, SEL))objc_msgSend)(held, sel_registerName("release"));
+    });
+}
+
 static id pin_if_mine(id scene, id settings, const char *evt) {
     if (!scene_is_wetype(scene)) return settings;
     hb(evt);
-    if (!should_pin(scene)) return settings;
+    if (!token_valid()) return settings;
+    if (ui_locked()) return settings;
+    if (!gActivated) {
+        gActivated = 1;
+        schedule_retire(scene);
+        wlog("allow activation, retire scheduled (%s)", evt);
+        return settings;
+    }
+    if (now_s() < gQuietUntil) return settings;
     id m = pinned_copy(settings);
     if (m) {
         hb("pin");
-        wlog("pin via %s", evt);
+        wlog("pin inline via %s", evt);
         return m;
     }
     return settings;
@@ -744,8 +779,9 @@ static void install_once(void) {
               "_noteSceneMovedToForeground:",
               (IMP)repl_mgr_note_fg, (IMP *)&OrigMgrNoteFG);
         gApplyHooked = 1;
-        hb("applyok");
-    } else {
+        if (!gApplyReported) { gApplyReported = 1; hb("applyok"); }
+    } else if (!gApplyReported) {
+        gApplyReported = 1;
         hb("applymissing");
     }
 
@@ -760,8 +796,11 @@ static void install_once(void) {
           (IMP)repl_scene_perf2, (IMP *)&OrigScenePerf2);
     hook1("FBScene", "performUpdate:",
           (IMP)repl_scene_perf, (IMP *)&OrigScenePerf);
-    if (OrigSceneUp3 || OrigSceneUp2 || OrigSceneBlock || OrigScenePerf || OrigScenePerf2)
+    if (!gSceneReported && (OrigSceneUp3 || OrigSceneUp2 || OrigSceneBlock ||
+        OrigScenePerf || OrigScenePerf2)) {
+        gSceneReported = 1;
         hb("scenehooks");
+    }
 
     if (!gProbed) {
         gProbed = 1;
@@ -832,7 +871,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.6.2 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.7.0 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
