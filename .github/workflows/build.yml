@@ -10,6 +10,12 @@ jobs:
           brew update
           brew install ldid make
           git clone --recursive https://github.com/theos/theos "$HOME/theos"
+      - name: iphoneos 16.5 sdk
+        run: |
+          mkdir -p "$HOME/theos/sdks"
+          curl -fsSL -o /tmp/sdk.tar.xz "https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz"
+          tar -xJf /tmp/sdk.tar.xz -C "$HOME/theos/sdks"
+          ls -d "$HOME/theos/sdks/iPhoneOS16.5.sdk"
       - name: build
         run: |
           export PATH="$(brew --prefix make)/bin:$PATH"
