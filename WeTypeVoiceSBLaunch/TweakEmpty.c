@@ -449,6 +449,7 @@ static void repl_fb_open(id self, SEL cmd, id app, id opts, id origin, id req, i
 
 /* Central settings commit point: every scene transition passes through here. */
 static void repl_mgr_apply(id self, SEL cmd, id settings, id scene, id ctx, id comp) {
+    hb("tryapply");
     if (should_pin(scene)) {
         id m = pinned_copy(settings);
         if (m) {
@@ -461,6 +462,7 @@ static void repl_mgr_apply(id self, SEL cmd, id settings, id scene, id ctx, id c
 }
 
 static void repl_mgr_note_fg(id self, SEL cmd, id scene) {
+    hb("notefg");
     if (OrigMgrNoteFG) OrigMgrNoteFG(self, cmd, scene);
     if (!scene_is_wetype(scene)) return;
     char fb[128];
@@ -680,7 +682,9 @@ static void install_once(void) {
               "_noteSceneMovedToForeground:",
               (IMP)repl_mgr_note_fg, (IMP *)&OrigMgrNoteFG);
         gApplyHooked = 1;
+        hb("applyok");
     } else if (!gApplyHooked && !OrigSceneBlock) {
+        hb("applymissing");
         wlog("manager commit point missing -> FBScene fallback");
         hook1("FBScene",
               "updateSettingsWithBlock:",
@@ -694,7 +698,7 @@ static void install_once(void) {
                    "setKeyboardFocusApplicationPID:completion:") ? 1 : 0);
     }
 
-    if (OrigFBSOpenURL || OrigMgrApply || OrigAllow || OrigSceneBlock) {
+    if (!gInstalled && (OrigFBSOpenURL || OrigMgrApply || OrigAllow || OrigSceneBlock)) {
         gInstalled = 1;
         hb("ready");
     }
@@ -756,7 +760,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.6.0 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.6.1 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
