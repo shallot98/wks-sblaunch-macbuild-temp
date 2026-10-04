@@ -36,6 +36,10 @@ static void (*OrigFBSOpenApp)(id, SEL, id, id, unsigned int, id);
 static void (*OrigMgrApply)(id, SEL, id, id, id, id);
 static void (*OrigMgrNoteFG)(id, SEL, id);
 static void (*OrigSceneBlock)(id, SEL, id);
+static void (*OrigSceneUp3)(id, SEL, id, id, id);
+static void (*OrigSceneUp2)(id, SEL, id, id);
+static void (*OrigScenePerf)(id, SEL, id);
+static void (*OrigScenePerf2)(id, SEL, id, id);
 
 static const char *kWeTypeBundle = "com.tencent.wetype";
 static const char *kSpringBoardBundle = "com.apple.springboard";
@@ -447,7 +451,65 @@ static void repl_fb_open(id self, SEL cmd, id app, id opts, id origin, id req, i
     if (OrigFBOpen) OrigFBOpen(self, cmd, app, opts, origin, req, comp);
 }
 
-/* Central settings commit point: every scene transition passes through here. */
+/* iOS 16.1.2 has no FBSceneManager _applyMutableSettings: - the live entry
+ * points are the FBScene update*/perform* families. Hook all of them and report
+ * by heartbeat which one a WeType transition actually goes through. */
+static id pin_if_mine(id scene, id settings, const char *evt) {
+    if (!scene_is_wetype(scene)) return settings;
+    hb(evt);
+    if (!should_pin(scene)) return settings;
+    id m = pinned_copy(settings);
+    if (m) {
+        hb("pin");
+        wlog("pin via %s", evt);
+        return m;
+    }
+    return settings;
+}
+
+static void repl_scene_up3(id self, SEL cmd, id settings, id ctx, id comp) {
+    settings = pin_if_mine(self, settings, "e3");
+    if (OrigSceneUp3) OrigSceneUp3(self, cmd, settings, ctx, comp);
+}
+
+static void repl_scene_up2(id self, SEL cmd, id settings, id ctx) {
+    settings = pin_if_mine(self, settings, "e2");
+    if (OrigSceneUp2) OrigSceneUp2(self, cmd, settings, ctx);
+}
+
+static void repl_scene_perf(id self, SEL cmd, id block) {
+    if (scene_is_wetype(self)) {
+        hb("ep");
+        if (should_pin(self) && block) {
+            void (^orig)(id) = (void (^)(id))block;
+            void (^w)(id) = ^(id settings) {
+                if (orig) orig(settings);
+                pin_bg(settings);
+                hb("pin");
+            };
+            if (OrigScenePerf) { OrigScenePerf(self, cmd, (id)_Block_copy(w)); return; }
+        }
+    }
+    if (OrigScenePerf) OrigScenePerf(self, cmd, block);
+}
+
+static void repl_scene_perf2(id self, SEL cmd, id block, id comp) {
+    if (scene_is_wetype(self)) {
+        hb("ep2");
+        if (should_pin(self) && block) {
+            void (^orig)(id) = (void (^)(id))block;
+            void (^w)(id) = ^(id settings) {
+                if (orig) orig(settings);
+                pin_bg(settings);
+                hb("pin");
+            };
+            if (OrigScenePerf2) { OrigScenePerf2(self, cmd, (id)_Block_copy(w), comp); return; }
+        }
+    }
+    if (OrigScenePerf2) OrigScenePerf2(self, cmd, block, comp);
+}
+
+/* Central settings commit point on older iOS (bakgrunnur era). */
 static void repl_mgr_apply(id self, SEL cmd, id settings, id scene, id ctx, id comp) {
     hb("tryapply");
     if (should_pin(scene)) {
@@ -683,13 +745,23 @@ static void install_once(void) {
               (IMP)repl_mgr_note_fg, (IMP *)&OrigMgrNoteFG);
         gApplyHooked = 1;
         hb("applyok");
-    } else if (!gApplyHooked && !OrigSceneBlock) {
+    } else {
         hb("applymissing");
-        wlog("manager commit point missing -> FBScene fallback");
-        hook1("FBScene",
-              "updateSettingsWithBlock:",
-              (IMP)repl_scene_block, (IMP *)&OrigSceneBlock);
     }
+
+    /* These are the live entry points on iOS 15/16. */
+    hook1("FBScene", "updateSettings:withTransitionContext:completion:",
+          (IMP)repl_scene_up3, (IMP *)&OrigSceneUp3);
+    hook1("FBScene", "updateSettings:withTransitionContext:",
+          (IMP)repl_scene_up2, (IMP *)&OrigSceneUp2);
+    hook1("FBScene", "updateSettingsWithBlock:",
+          (IMP)repl_scene_block, (IMP *)&OrigSceneBlock);
+    hook1("FBScene", "performUpdate:withCompletion:",
+          (IMP)repl_scene_perf2, (IMP *)&OrigScenePerf2);
+    hook1("FBScene", "performUpdate:",
+          (IMP)repl_scene_perf, (IMP *)&OrigScenePerf);
+    if (OrigSceneUp3 || OrigSceneUp2 || OrigSceneBlock || OrigScenePerf || OrigScenePerf2)
+        hb("scenehooks");
 
     if (!gProbed) {
         gProbed = 1;
@@ -760,7 +832,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.6.1 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.6.2 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
