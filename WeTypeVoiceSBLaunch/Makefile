@@ -15,6 +15,10 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = WeTypeVoiceSBLaunch
 WeTypeVoiceSBLaunch_FILES = TweakEmpty.c
 WeTypeVoiceSBLaunch_CFLAGS = -fno-modules -fblocks
+# The tweaks that actually load on this device all link Foundation/UIKit and get
+# CydiaSubstrate pulled in by tweak.mk; a libSystem-only image is skipped
+# silently by the injector. Keep the linkage shape identical to ExtVoice.
+WeTypeVoiceSBLaunch_FRAMEWORKS = Foundation UIKit
 WeTypeVoiceSBLaunch_LDFLAGS = -undefined dynamic_lookup
 WeTypeVoiceSBLaunch_INSTALL_TARGET_PROCESSES = SpringBoard
 include $(THEOS_MAKE_PATH)/tweak.mk
