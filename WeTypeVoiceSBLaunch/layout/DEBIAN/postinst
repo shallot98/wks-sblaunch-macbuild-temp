@@ -1,0 +1,7 @@
+#!/bin/bash
+set -e
+TI="/usr/lib/TweakInject"
+if [ -e "$TI/WeTypeVoiceSBLaunch.dylib" ] && [ ! -e "$TI/WeTypeVoiceSBLaunch.dylib.roothidepatch" ]; then
+  ln -s /usr/lib/DynamicPatches/AutoPatches.dylib "$TI/WeTypeVoiceSBLaunch.dylib.roothidepatch" 2>/dev/null || true
+fi
+exit 0

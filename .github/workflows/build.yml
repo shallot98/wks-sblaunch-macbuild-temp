@@ -1,0 +1,36 @@
+name: build-sblaunch
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: deps
+        run: |
+          brew update
+          brew install ldid make
+          git clone --recursive https://github.com/theos/theos "$HOME/theos"
+      - name: toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          "$HOME/theos/toolchain/appleclang/bin/clang" --version 2>/dev/null || true
+      - name: build
+        run: |
+          export PATH="$(brew --prefix make)/bin:$PATH"
+          cd WeTypeVoiceSBLaunch
+          THEOS="$HOME/theos" THEOS_PACKAGE_SCHEME=roothide \
+            make clean package FINALPACKAGE=1 ARCHS="arm64 arm64e" TARGET=iphone:clang:latest:15.0
+      - name: abi proof
+        run: |
+          cd WeTypeVoiceSBLaunch
+          echo "----- otool -hv (must show USR00 on the arm64e slice) -----"
+          otool -hv .theos/obj/WeTypeVoiceSBLaunch.dylib
+          otool -l .theos/obj/WeTypeVoiceSBLaunch.dylib | grep -A4 LC_BUILD_VERSION | head -20
+          ls -l packages/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sblaunch-usr00
+          path: |
+            WeTypeVoiceSBLaunch/packages/*.deb
+            WeTypeVoiceSBLaunch/.theos/obj/WeTypeVoiceSBLaunch.dylib
