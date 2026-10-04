@@ -14,6 +14,7 @@
 #include <objc/message.h>
 #include <dispatch/dispatch.h>
 #include <notify.h>
+#include <substrate.h>
 #include <dlfcn.h>
 #include <pthread.h>
 #include <string.h>
@@ -27,10 +28,6 @@
 #include <sys/stat.h>
 
 extern void *_Block_copy(const void *);
-
-typedef void (*MSHookFn)(Class, SEL, IMP, IMP *);
-
-static MSHookFn pMSHook;
 
 static void (*OrigFBOpen)(id, SEL, id, id, id, id, id);
 static BOOL (*OrigAllow)(id, SEL, id);
@@ -638,26 +635,16 @@ static void register_notify(void) {
 static void hook1(const char *clsname, const char *selname, IMP neu, IMP *orig) {
     Class cls = objc_getClass(clsname);
     SEL sel = sel_registerName(selname);
-    if (!pMSHook || !cls || !class_getInstanceMethod(cls, sel)) {
+    if (!cls || !class_getInstanceMethod(cls, sel)) {
         wlog("skip %s %s", clsname, selname);
         return;
     }
     if (orig && *orig) return;
-    pMSHook(cls, sel, neu, orig);
+    MSHookMessageEx(cls, sel, neu, orig);
     wlog("hooked %s %s", clsname, selname);
 }
 
 static void install_once(void) {
-    if (!pMSHook) {
-        void *h = dlopen("/usr/lib/libsubstrate.dylib", RTLD_LAZY);
-        if (!h) h = dlopen("@loader_path/.jbroot/usr/lib/libsubstrate.dylib", RTLD_LAZY);
-        if (h) pMSHook = (MSHookFn)dlsym(h, "MSHookMessageEx");
-    }
-    if (!pMSHook) {
-        wlog("MSHook missing");
-        return;
-    }
-
     hook1("FBSSystemService",
           "openURL:application:options:clientPort:withResult:",
           (IMP)repl_fbs_openurl, (IMP *)&OrigFBSOpenURL);
@@ -739,8 +726,8 @@ static void *install_thr(void *ctx) {
         sleep(1);
         install_once();
     }
-    wlog("install done MSHook=%p apply=%d scene=%p allow=%p fbsURL=%p installed=%d",
-         (void *)pMSHook, gApplyHooked, (void *)OrigSceneBlock, (void *)OrigAllow,
+    wlog("install done apply=%d scene=%p allow=%p fbsURL=%p installed=%d",
+         gApplyHooked, (void *)OrigSceneBlock, (void *)OrigAllow,
          (void *)OrigFBSOpenURL, gInstalled);
     boot_guard(gInstalled);
     return NULL;
@@ -749,7 +736,7 @@ static void *install_thr(void *ctx) {
 __attribute__((constructor))
 static void ctor(void) {
     const char *pn = getprogname();
-    wlog("v0.5.0 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.5.3 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;

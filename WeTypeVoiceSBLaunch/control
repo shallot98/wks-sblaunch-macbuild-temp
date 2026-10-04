@@ -1,7 +1,7 @@
 Package: com.wxkb.wetypevoicesblaunch
 Name: WeType Voice SB Launch
 Depends: mobilesubstrate (>= 0.9.5000) | ellekit, firmware (>= 14.0)
-Version: 0.5.1
+Version: 0.5.3
 Architecture: iphoneos-arm64e
 Description: SpringBoard — open WeType suspended via the workspace path for voice; pin its scene backgrounded while the voice token is held.
 Maintainer: wxkb
