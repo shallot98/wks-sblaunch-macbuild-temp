@@ -736,7 +736,11 @@ static void *install_thr(void *ctx) {
 __attribute__((constructor))
 static void ctor(void) {
     const char *pn = getprogname();
-    wlog("v0.5.3 ctor pn=%s", pn ? pn : "?");
+    /* Filesystem logging is unreliable here: sandboxed/confined processes
+     * cannot write the shared preference paths, so a missing log file proves
+     * nothing. The root daemon observes this notify instead. */
+    notify_post("com.wxkb.sblaunch.hello");
+    wlog("v0.5.5 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
