@@ -78,6 +78,15 @@ static void wlog(const char *fmt, ...) {
     }
 }
 
+/* Every notable event is also announced as a Darwin notify, because a confined
+ * process cannot write the shared preference paths and a missing log file would
+ * look identical to "not injected". */
+static void hb(const char *what) {
+    char name[96];
+    snprintf(name, sizeof(name), "com.wxkb.sblaunch.%s", what);
+    notify_post(name);
+}
+
 static int disabled(void) {
     struct stat st;
     return stat(kOffFile, &st) == 0;
@@ -108,6 +117,7 @@ static int token_valid(void) {
 static void token_grant(const char *why) {
     gTokUntil = now_s() + 20.0;
     gTokRetired = 0;
+    hb("token");
     wlog("token grant 20s (%s)", why);
 }
 
@@ -345,6 +355,7 @@ static void retire_scene(id scene) {
     void (^done)(void) = ^{ wlog("retire applied"); };
     ((void (*)(id, SEL, id, id, id, id))objc_msgSend)(mgr, sel, m, scene, nil,
                                                       (id)_Block_copy(done));
+    hb("retire");
     wlog("retire wetype scene pid=%d", (int)wxkb_pid());
 }
 
@@ -442,6 +453,7 @@ static void repl_mgr_apply(id self, SEL cmd, id settings, id scene, id ctx, id c
         id m = pinned_copy(settings);
         if (m) {
             settings = m;
+            hb("pin");
             wlog("pin apply wetype fg->bg pid=%d", (int)wxkb_pid());
         }
     }
@@ -543,6 +555,7 @@ static int wks_launch_workspace(const char *bid, const char *urlstr) {
     }
     void (^done)(id) = ^(id err) { wlog("ws open err=%s", cstr(err)); };
     ((void (*)(id, SEL, id, id, id))objc_msgSend)(ws, sel, sysSvc, req, (id)_Block_copy(done));
+    hb("open");
     wlog("ws open issued bid=%s url=%s", bid, urlstr && urlstr[0] ? urlstr : "-");
     return 1;
 }
@@ -681,7 +694,10 @@ static void install_once(void) {
                    "setKeyboardFocusApplicationPID:completion:") ? 1 : 0);
     }
 
-    if (OrigFBSOpenURL || OrigMgrApply || OrigAllow || OrigSceneBlock) gInstalled = 1;
+    if (OrigFBSOpenURL || OrigMgrApply || OrigAllow || OrigSceneBlock) {
+        gInstalled = 1;
+        hb("ready");
+    }
     register_notify();
 }
 
@@ -740,7 +756,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.5.5 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.6.0 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
