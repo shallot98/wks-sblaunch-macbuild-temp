@@ -14,7 +14,7 @@ jobs:
         run: |
           export PATH="$(brew --prefix make)/bin:$PATH"
           cd WeTypeVoiceSBLaunch
-          THEOS="$HOME/theos" make clean all FINALPACKAGE=1 \
+          THEOS="$HOME/theos" THEOS_PACKAGE_SCHEME=rootless make clean all FINALPACKAGE=1 \
             ARCHS="arm64 arm64e" TARGET=iphone:clang:latest:15.0
       - name: abi proof
         run: |
