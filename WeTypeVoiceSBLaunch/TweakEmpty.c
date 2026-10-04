@@ -451,9 +451,9 @@ static void repl_fb_open(id self, SEL cmd, id app, id opts, id origin, id req, i
     if (OrigFBOpen) OrigFBOpen(self, cmd, app, opts, origin, req, comp);
 }
 
-/* iOS 16.1.2 has no FBSceneManager _applyMutableSettings: - the live entry
- * points are the FBScene update*/perform* families. Hook all of them and report
- * by heartbeat which one a WeType transition actually goes through. */
+/* iOS 16.1.2 has no FBSceneManager _applyMutableSettings: any more; the live
+ * entry points are the FBScene update/perform families. Hook all of them and
+ * report by heartbeat which one a WeType transition actually goes through. */
 static id pin_if_mine(id scene, id settings, const char *evt) {
     if (!scene_is_wetype(scene)) return settings;
     hb(evt);
