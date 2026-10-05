@@ -101,9 +101,19 @@ static void hb(const char *what) {
     notify_post(name);
 }
 
+static const char *kOnFile = "/var/mobile/Library/Preferences/com.wxkb.voicedictate.on";
+
 static int disabled(void) {
     struct stat st;
     return stat(kOffFile, &st) == 0;
+}
+
+/* The whole "voice button must not bring the main app on screen" feature is
+ * opt-in: a fresh install does nothing at all, and touching the marker is what
+ * arms the launcher, the assertions and the scene hiding. */
+static int bgvoice_on(void) {
+    struct stat st;
+    return !disabled() && stat(kOnFile, &st) == 0;
 }
 
 static int in_voice(void) {
@@ -462,7 +472,7 @@ static void take_token_if_mine(const char *why) {
 
 static void repl_fbs_openurl(id self, SEL cmd, id url, id app, id opts,
                              unsigned int port, id result) {
-    if (is_voice(url)) {
+    if (is_voice(url) && bgvoice_on()) {
         mark_voice("FBS openURL");
         take_token_if_mine("FBS openURL");
         opts = mutate_suspended(opts);
@@ -473,7 +483,7 @@ static void repl_fbs_openurl(id self, SEL cmd, id url, id app, id opts,
 
 static void repl_fbs_openapp(id self, SEL cmd, id app, id opts,
                              unsigned int port, id result) {
-    if (is_wetype(app) && (opts_is_voice(opts) || in_voice())) {
+    if (is_wetype(app) && bgvoice_on() && (opts_is_voice(opts) || in_voice())) {
         mark_voice("FBS openApp");
         take_token_if_mine("FBS openApp");
         opts = mutate_suspended(opts);
@@ -488,7 +498,7 @@ static BOOL repl_allow(id self, SEL cmd, id app) {
 }
 
 static void repl_fb_open(id self, SEL cmd, id app, id opts, id origin, id req, id comp) {
-    if (is_wetype(app) && (opts_is_voice(opts) || in_voice())) {
+    if (is_wetype(app) && bgvoice_on() && (opts_is_voice(opts) || in_voice())) {
         mark_voice("FB openApp");
         take_token_if_mine("FB openApp");
         opts = mutate_suspended(opts);
@@ -816,7 +826,7 @@ static const char *wks_launch_suspended(const char *bid, const char *urlstr) {
 
 static void on_voice_launch(int t) {
     (void)t;
-    if (disabled()) return;
+    if (!bgvoice_on()) return;
     double now = now_s();
     if ((now - gLastKick) < 4.0) {
         wlog("notify launch deduped");
@@ -861,7 +871,7 @@ static void on_host_ready(int t) {
 
 static void on_pcm_first(int t) {
     (void)t;
-    if (disabled()) return;
+    if (!bgvoice_on()) return;
     gProven = 1;
     if (!gLastScene) { wlog("pcm1 without a known scene"); return; }
     gQuietUntil = now_s() + 0.6;
@@ -1019,7 +1029,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.8.5 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.8.6 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
