@@ -464,6 +464,18 @@ static void repl_fb_open(id self, SEL cmd, id app, id opts, id origin, id req, i
  * suspended and reaped within ~1.5s, so recording cannot start. Cold launches
  * therefore get activated normally and are retired a moment later; once the app
  * has proven it is alive, later transitions are suppressed inline (no flash). */
+static void pin_via_block(id scene, const char *why) {
+    if (!resp(scene, "updateSettingsWithBlock:")) {
+        wlog("no block API on scene (%s)", why);
+        return;
+    }
+    void (^blk)(id) = ^(id st) { pin_bg(st); };
+    ((void (*)(id, SEL, id))objc_msgSend)(
+        scene, sel_registerName("updateSettingsWithBlock:"), (id)_Block_copy(blk));
+    hb("pin");
+    wlog("pinned via block (%s)", why);
+}
+
 static void schedule_retire(id scene) {
     if (gTokRetired) return;
     gTokRetired = 1;
@@ -471,45 +483,41 @@ static void schedule_retire(id scene) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         if (token_valid() && resp(held, "updateSettingsWithBlock:")) {
-            void (^blk)(id) = ^(id st) { pin_bg(st); };
-            ((void (*)(id, SEL, id))objc_msgSend)(
-                held, sel_registerName("updateSettingsWithBlock:"), (id)_Block_copy(blk));
-            hb("retire");
+            pin_via_block(held, "retire");
             wlog("retired wetype scene after activation");
         }
         ((void (*)(id, SEL))objc_msgSend)(held, sel_registerName("release"));
     });
 }
 
-static id pin_if_mine(id scene, id settings, const char *evt) {
-    if (!scene_is_wetype(scene)) return settings;
+/* Handing SpringBoard a mutableCopy of its own argument crashed it: on iOS 16
+ * the first parameter of updateSettings:withTransitionContext: is not a
+ * FBSSceneSettings we may replace. Observe only, and suppress through the
+ * block-based API, which mutates the object FrontBoard itself provides. */
+static void note_transition(id scene, const char *evt) {
+    if (!scene_is_wetype(scene)) return;
     hb(evt);
-    if (!token_valid()) return settings;
-    if (ui_locked()) return settings;
+    if (!token_valid()) return;
+    if (ui_locked()) return;
     if (!gActivated) {
         gActivated = 1;
         schedule_retire(scene);
         wlog("allow activation, retire scheduled (%s)", evt);
-        return settings;
+        return;
     }
-    if (now_s() < gQuietUntil) return settings;
-    id m = pinned_copy(settings);
-    if (m) {
-        hb("pin");
-        wlog("pin inline via %s", evt);
-        return m;
-    }
-    return settings;
+    if (now_s() < gQuietUntil) return;
+    gQuietUntil = now_s() + 0.6;
+    pin_via_block(scene, evt);
 }
 
 static void repl_scene_up3(id self, SEL cmd, id settings, id ctx, id comp) {
-    settings = pin_if_mine(self, settings, "e3");
     if (OrigSceneUp3) OrigSceneUp3(self, cmd, settings, ctx, comp);
+    note_transition(self, "e3");
 }
 
 static void repl_scene_up2(id self, SEL cmd, id settings, id ctx) {
-    settings = pin_if_mine(self, settings, "e2");
     if (OrigSceneUp2) OrigSceneUp2(self, cmd, settings, ctx);
+    note_transition(self, "e2");
 }
 
 static void repl_scene_perf(id self, SEL cmd, id block) {
@@ -520,7 +528,7 @@ static void repl_scene_perf(id self, SEL cmd, id block) {
             void (^w)(id) = ^(id settings) {
                 if (orig) orig(settings);
                 pin_bg(settings);
-                hb("pin");
+                hb("pinblk");
             };
             if (OrigScenePerf) { OrigScenePerf(self, cmd, (id)_Block_copy(w)); return; }
         }
@@ -536,7 +544,7 @@ static void repl_scene_perf2(id self, SEL cmd, id block, id comp) {
             void (^w)(id) = ^(id settings) {
                 if (orig) orig(settings);
                 pin_bg(settings);
-                hb("pin");
+                hb("pinblk");
             };
             if (OrigScenePerf2) { OrigScenePerf2(self, cmd, (id)_Block_copy(w), comp); return; }
         }
@@ -871,7 +879,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.7.0 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.7.1 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
