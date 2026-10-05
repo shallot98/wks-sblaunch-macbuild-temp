@@ -503,6 +503,15 @@ static void note_transition(id scene, const char *evt) {
     if (!gActivated) {
         gActivated = 1;
         schedule_retire(scene);
+        /* -[FBSceneManager _applyMutableSettings:toScene:…] does not exist on
+         * iOS 16, so the scheduled retire was a silent no-op and the app stayed
+         * visible until a later transition reached the block API. Suppress on
+         * the first one instead; the 0.7.5 run proved the ASR keeps working
+         * once the scene is backgrounded. */
+        if (now_s() >= gQuietUntil) {
+            gQuietUntil = now_s() + 0.6;
+            pin_via_block(scene, "first");
+        }
         wlog("allow activation, retire scheduled (%s)", evt);
         return;
     }
@@ -662,7 +671,10 @@ static int wks_launch_workspace(const char *bid, const char *urlstr) {
                  nsstr(kSpringBoardBundle));
         dict_set(dict, "__PayloadOptions", payload);
     }
-    if (urlstr && urlstr[0]) dict_set(dict, "__PayloadURL", nsstr(urlstr));
+    /* No payload URL here: opening a URL is itself an instruction to bring the
+     * app forward. The keyboard starts the session through WeType's own IPC
+     * (voiceCommand type=1), which the 0.7.5 run showed is enough. */
+    (void)urlstr;
 
     id opts = nil;
     if (cresp(OP, "optionsWithDictionary:"))
@@ -717,10 +729,8 @@ static const char *wks_launch_suspended(const char *bid, const char *urlstr) {
         dict_set(dict, "__ActivateSuspended", yes);
         dict_set(dict, "ActivateSuspended", yes);
         dict_set(dict, "LSApplicationLaunchOptionActivateSuspended", yes);
-        if (urlstr && urlstr[0]) {
-            dict_set(dict, "__PayloadURL", nsstr(urlstr));
-            dict_set(dict, "UIApplicationLaunchOptionsURLKey", nsstr(urlstr));
-        }
+        /* same reason as the workspace tier */
+        (void)urlstr;
         void (^done)(id) = ^(id r) { wlog("fbs open result=%s", cstr(r)); };
         ((void (*)(id, SEL, id, id, unsigned int, id))objc_msgSend)(
             sh, sel_registerName("openApplication:options:clientPort:withResult:"),
@@ -919,7 +929,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.7.5 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.7.6 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
