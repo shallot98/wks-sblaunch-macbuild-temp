@@ -357,13 +357,14 @@ static void pin_bg(id settings) {
     if (resp(settings, "setDeactivationReasons:"))
         ((void (*)(id, SEL, uint64_t))objc_msgSend)(
             settings, sel_registerName("setDeactivationReasons:"), (uint64_t)0);
-    if (!resp(settings, "setFrame:") || !resp(settings, "frame")) { hb("noframe"); return; }
+    if (!resp(settings, "setFrame:") || !resp(settings, "frame")) { hb("pinno"); return; }
     WKRect r = ((WKRect (*)(id, SEL))objc_msgSend)(settings, sel_registerName("frame"));
     if (r.size.w <= 0.0 || r.origin.y > 9000.0) return;
     WKRect off = r;
     off.origin.y = r.size.h * 40.0;
     ((void (*)(id, SEL, WKRect))objc_msgSend)(settings, sel_registerName("setFrame:"), off);
-    hb("offscreen");
+    /* the daemon only logs names it knows, so reuse the routed "pinned" slot */
+    hb("pinned");
 }
 
 static int should_pin(id scene) {
@@ -993,7 +994,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.8.1 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.8.2 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
