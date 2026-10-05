@@ -366,6 +366,13 @@ static void pin_bg(id settings) {
     hb("offscreen");
 }
 
+static int should_pin(id scene) {
+    if (!token_valid()) return 0;
+    if (!scene_is_wetype(scene)) return 0;
+    if (ui_locked()) return 0;
+    return 1;
+}
+
 static id pinned_copy(id settings) {
     id m = msg0(settings, "mutableCopy");
     if (!m) return nil;
@@ -783,19 +790,6 @@ static const char *wks_launch_suspended(const char *bid, const char *urlstr) {
     /* The daemon watches the same notify and launches after its own delay. */
     hb("t3daemon");
     return "daemon";
-}
-
-static void hide_via_block(id scene, const char *why) {
-    if (!scene || !resp(scene, "updateSettingsWithBlock:")) { hb("noblockapi"); return; }
-    if (gHidden) return;
-    gHidden = 1;
-    void (^orig)(id) = (void (^)(id))((id (*)(id, SEL))objc_msgSend)(
-        scene, sel_registerName("settings"));
-    (void)orig;
-    void (^blk)(id) = ^(id settings) { hide_offscreen(settings); };
-    if (OrigSceneBlock) OrigSceneBlock(scene, sel_registerName("updateSettingsWithBlock:"),
-                                        (id)_Block_copy(blk));
-    wlog("moved scene off-screen (%s)", why);
 }
 
 /* ---------- notify plumbing ---------- */
