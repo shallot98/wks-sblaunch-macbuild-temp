@@ -669,7 +669,10 @@ static int wks_launch_workspace(const char *bid, const char *urlstr) {
 }
 
 static const char *wks_launch_suspended(const char *bid, const char *urlstr) {
-    if (wks_launch_workspace(bid, urlstr)) return "workspace";
+    if (wks_launch_workspace(bid, urlstr)) { hb("t1ws"); return "workspace"; }
+    /* SpringBoard cannot write a log file here, so the tier that actually ran
+     * only survives as a heartbeat the root daemon timestamps. */
+    hb("t1fail");
 
     id sh = cls0(objc_getClass("FBSSystemService"), "sharedService");
     if (sh && resp(sh, "createClientPort") &&
@@ -690,10 +693,12 @@ static const char *wks_launch_suspended(const char *bid, const char *urlstr) {
             sh, sel_registerName("openApplication:options:clientPort:withResult:"),
             nsstr(bid), mutate_suspended(dict), port, (id)_Block_copy(done));
         wlog("fbs open issued");
+        hb("t2fbs");
         return "fbs";
     }
 
     /* The daemon watches the same notify and launches after its own delay. */
+    hb("t3daemon");
     return "daemon";
 }
 
@@ -714,6 +719,7 @@ static void on_voice_launch(int t) {
     if (wxkb_pid() > 0) {
         take_token_if_mine("already-up");
         wlog("host already up — pin only");
+        hb("pinned");
         return;
     }
     if (frontmost_is_wetype()) {
@@ -880,7 +886,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.7.2 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.7.3 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
