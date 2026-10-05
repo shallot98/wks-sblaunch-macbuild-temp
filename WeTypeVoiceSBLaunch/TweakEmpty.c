@@ -549,11 +549,13 @@ static void note_transition(id scene, const char *evt) {
          * visible until a later transition reached the block API. Suppress on
          * the first one instead; the 0.7.5 run proved the ASR keeps working
          * once the scene is backgrounded. */
-        /* Do not suppress here: pinning before the capture engine produces its
-         * first packet leaves setActive answering ok while the engine delivers
-         * nothing (0.7.6 and 0.7.7 both saw zero PCM). The host tweak posts
-         * com.wxkb.host.pcm1 the moment audio really flows, and that pins. */
-        wlog("allow activation, retire scheduled (%s)", evt);
+        /* Hide it now, not on the next transition. This does not background the
+         * scene, so the capture engine is not cut off the way pinning-before-
+         * first-packet was; and pcm1 remains as a second chance in case this
+         * transition is not the one that brings it forward. */
+        gQuietUntil = now_s() + 0.6;
+        pin_via_block(scene, "first");
+        wlog("allow activation, moved off screen immediately (%s)", evt);
         return;
     }
     if (now_s() < gQuietUntil) return;
@@ -701,7 +703,9 @@ static int wks_launch_workspace(const char *bid, const char *urlstr) {
     id dict = nsnewdict();
     if (!dict) { hb("wdict"); return 0; }
     id yes = nsnum_yes();
-    dict_set(dict, "__ActivateSuspended", yes);
+    /* No __ActivateSuspended: an app that never really activated delivers zero
+     * mic frames, however the session reports itself as active. It activates,
+     * and is moved off the display on the very first scene transition instead. */
     dict_set(dict, "processLaunchIntent", nsnum_int(4));
     dict_set(dict, "__SBWorkspaceOpenOptionUnlockResult", nsnum_int(1));
     dict_set(dict, "__PromptUnlockDevice", yes);
@@ -989,7 +993,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.8.0 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.8.1 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
