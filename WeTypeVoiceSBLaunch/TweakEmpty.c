@@ -47,8 +47,6 @@ static const char *kVoiceURL = "wetype://WXKBURL_STARTVOICERECORD";
 static const char *kNotifyLaunch = "com.wxkb.wetypehost.launch";
 static const char *kNotifyReady = "com.wxkb.wetypehost.ready";
 static const char *kPendingFile = "/var/mobile/Library/Preferences/wks_pending_voice.url";
-static const char *kPendingHost =
-    "/var/mobile/Library/Preferences/wks_pending_voice.host";
 static char gVoiceHost[128];
 static const char *kOffFile = "/var/mobile/Library/Preferences/com.wxkb.sblaunch.off";
 static const char *kBootsFile = "/var/mobile/Library/Preferences/wks_sblaunch.boots";
@@ -306,20 +304,23 @@ static pid_t wxkb_pid(void) {
         sh, sel_registerName("pidForApplication:"), nsstr(kWeTypeBundle));
 }
 
-/* WeType returns recognised text to the app named as the launch source. Filled
- * by the keyboard extension, which is the only process that really knows it. */
-static void read_voice_host(void) {
+/* WeType hands the recognised text back to the app named as the launch source.
+ * SpringBoard itself knows that app: at kick time the frontmost process is the
+ * host the keyboard is typing into. (The keyboard extension cannot publish it
+ * itself - its sandbox rejects writes to /var/mobile/Library/Preferences, which
+ * is also why the pending URL file never actually existed.) */
+static void remember_voice_host(void) {
+    char fb[128];
+    fb[0] = 0;
     gVoiceHost[0] = 0;
-    FILE *f = fopen(kPendingHost, "r");
-    if (!f) return;
-    if (fgets(gVoiceHost, (int)sizeof(gVoiceHost), f)) {
-        size_t len = strlen(gVoiceHost);
-        while (len > 0 && (gVoiceHost[len - 1] == '\n' || gVoiceHost[len - 1] == '\r'))
-            gVoiceHost[--len] = 0;
+    frontmost_bundle(fb, sizeof(fb));
+    if (!fb[0]) { wlog("host: frontmost unknown"); return; }
+    if (is_wetype(nsstr(fb)) || strstr(fb, "springboard")) {
+        wlog("host: ignored %s", fb);
+        return;
     }
-    fclose(f);
-    if (!gVoiceHost[0]) wlog("no host file");
-    else wlog("voice host=%s", gVoiceHost);
+    snprintf(gVoiceHost, sizeof(gVoiceHost), "%s", fb);
+    wlog("host: %s", gVoiceHost);
 }
 
 static void read_voice_url(char *out, size_t n) {
@@ -813,7 +814,7 @@ static void on_voice_launch(int t) {
     }
     /* Grant before opening: the transition to pin can start immediately. */
     token_grant("pre-launch");
-    read_voice_host();
+    remember_voice_host();
     char url[256];
     read_voice_url(url, sizeof(url));
     wlog("launch chain=%s", wks_launch_suspended(kWeTypeBundle, url));
@@ -980,7 +981,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.7.11 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.7.12 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
