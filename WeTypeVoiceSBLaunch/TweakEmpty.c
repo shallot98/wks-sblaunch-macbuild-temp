@@ -673,11 +673,7 @@ static int wks_launch_workspace(const char *bid, const char *urlstr) {
     id dict = nsnewdict();
     if (!dict) { hb("wdict"); return 0; }
     id yes = nsnum_yes();
-    /* No __ActivateSuspended here: a process that was never active cannot
-     * start mic capture even with UIBackgroundModes=audio (setActive answers ok
-     * and the engine delivers zero frames). It activates for real and the
-     * app-side tweak hides every window; the scene is pinned on the first
-     * transition instead. */
+    dict_set(dict, "__ActivateSuspended", yes);
     dict_set(dict, "processLaunchIntent", nsnum_int(4));
     dict_set(dict, "__SBWorkspaceOpenOptionUnlockResult", nsnum_int(1));
     dict_set(dict, "__PromptUnlockDevice", yes);
@@ -958,7 +954,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.7.8 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.7.9 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
