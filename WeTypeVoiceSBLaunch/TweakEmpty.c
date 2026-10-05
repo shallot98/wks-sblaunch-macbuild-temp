@@ -684,10 +684,16 @@ static int wks_launch_workspace(const char *bid, const char *urlstr) {
                  nsstr(kSpringBoardBundle));
         dict_set(dict, "__PayloadOptions", payload);
     }
-    /* No payload URL here: opening a URL is itself an instruction to bring the
-     * app forward. The keyboard starts the session through WeType's own IPC
-     * (voiceCommand type=1), which the 0.7.5 run showed is enough. */
-    (void)urlstr;
+    /* The launch-time URL is the one condition that correlates with the mic
+     * actually streaming: 0.7.5 (URL at launch) delivered PCM for 60s and text,
+     * while every run without it delivered zero frames - including 0.7.7, which
+     * really was foregrounded and had an in-process openURL called on it. It is
+     * passed as a launch option so WeType initialises itself as a voice session
+     * instead of reacting to a late URL open. */
+    if (urlstr && urlstr[0]) {
+        dict_set(dict, "__PayloadURL", nsstr(urlstr));
+        dict_set(dict, "UIApplicationLaunchOptionsURLKey", nsstr(urlstr));
+    }
 
     id opts = nil;
     if (cresp(OP, "optionsWithDictionary:"))
@@ -954,7 +960,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.7.9 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.7.10 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
