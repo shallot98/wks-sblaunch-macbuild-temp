@@ -50,8 +50,11 @@ static const char *kPendingFile = "/var/mobile/Library/Preferences/wks_pending_v
 static char gVoiceHost[128];
 static const char *kOffFile = "/var/mobile/Library/Preferences/com.wxkb.sblaunch.off";
 static const char *kBootsFile = "/var/mobile/Library/Preferences/wks_sblaunch.boots";
-/* A/B lever: re-enable hiding before audio is proven, without a rebuild. */
+/* A/B levers, read per event so they can be flipped without a rebuild:
+ * earlypin hides before audio is proven, retire hands the screen back to the
+ * host app as soon as audio is proven instead of only moving the layer. */
 static const char *kEarlyPinFile = "/var/mobile/Library/Preferences/com.wxkb.sblaunch.earlypin";
+static const char *kRetireFile = "/var/mobile/Library/Preferences/com.wxkb.sblaunch.retire";
 
 static double gVoiceUntil;   /* legacy: mutate an official request that still arrives */
 static double gTokUntil;     /* voice-launch token: this suspended open is ours */
@@ -858,6 +861,10 @@ static void on_pcm_first(int t) {
     if (!gLastScene) { wlog("pcm1 without a known scene"); return; }
     gQuietUntil = now_s() + 0.6;
     if (should_pin(gLastScene)) pin_via_block(gLastScene, "pcm1");
+    if (access(kRetireFile, F_OK) == 0 && gVoiceHost[0]) {
+        if (wks_launch_workspace(gVoiceHost, nil)) wlog("retired to %s", gVoiceHost);
+        else wlog("retire to host failed");
+    }
     wlog("audio proven, scene may now be hidden");
 }
 
@@ -1007,7 +1014,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.8.3 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.8.4 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
