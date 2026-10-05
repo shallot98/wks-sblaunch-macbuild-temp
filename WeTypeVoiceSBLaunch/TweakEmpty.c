@@ -338,31 +338,32 @@ static void read_voice_url(char *out, size_t n) {
 
 /* ---------- scene pinning ---------- */
 
+/* --- off-screen foreground -------------------------------------------------
+ * Backgrounding the scene makes iOS answer WeType's own "return to host" step
+ * with failure (sendJumpBackResult ok=0) and the recognised text is then never
+ * inserted; leaving it foreground is visible. Both are the same system switch,
+ * so keep the foreground state and move the scene's layer below the display:
+ * the workspace still has the host app's layer underneath, so nothing of
+ * WeType composites while iOS keeps considering it the active app. */
+typedef struct { double x, y; } WKPoint;
+typedef struct { double w, h; } WKSize;
+typedef struct { WKPoint origin; WKSize size; } WKRect;
+
 static void pin_bg(id settings) {
     if (!settings) return;
-    if (resp(settings, "setForeground:"))
-        ((void (*)(id, SEL, BOOL))objc_msgSend)(
-            settings, sel_registerName("setForeground:"), NO);
-    if (resp(settings, "setBackgrounded:"))
-        ((void (*)(id, SEL, BOOL))objc_msgSend)(
-            settings, sel_registerName("setBackgrounded:"), YES);
     if (resp(settings, "setUnderLock:"))
         ((void (*)(id, SEL, BOOL))objc_msgSend)(
             settings, sel_registerName("setUnderLock:"), NO);
     if (resp(settings, "setDeactivationReasons:"))
-        ((void (*)(id, SEL, unsigned long long))objc_msgSend)(
-            settings, sel_registerName("setDeactivationReasons:"), 0ull);
-}
-
-/* A token is only ever held for a voice-initiated open, so an icon tap
- * (no token) falls through untouched and WeType foregrounds normally. */
-static int should_pin(id scene) {
-    if (disabled()) return 0;
-    if (!token_valid()) return 0;
-    if (!scene_is_wetype(scene)) return 0;
-    if (ui_locked()) return 0;
-    if (now_s() < gQuietUntil) return 0;
-    return 1;
+        ((void (*)(id, SEL, uint64_t))objc_msgSend)(
+            settings, sel_registerName("setDeactivationReasons:"), (uint64_t)0);
+    if (!resp(settings, "setFrame:") || !resp(settings, "frame")) { hb("noframe"); return; }
+    WKRect r = ((WKRect (*)(id, SEL))objc_msgSend)(settings, sel_registerName("frame"));
+    if (r.size.w <= 0.0 || r.origin.y > 9000.0) return;
+    WKRect off = r;
+    off.origin.y = r.size.h * 40.0;
+    ((void (*)(id, SEL, WKRect))objc_msgSend)(settings, sel_registerName("setFrame:"), off);
+    hb("offscreen");
 }
 
 static id pinned_copy(id settings) {
@@ -784,6 +785,19 @@ static const char *wks_launch_suspended(const char *bid, const char *urlstr) {
     return "daemon";
 }
 
+static void hide_via_block(id scene, const char *why) {
+    if (!scene || !resp(scene, "updateSettingsWithBlock:")) { hb("noblockapi"); return; }
+    if (gHidden) return;
+    gHidden = 1;
+    void (^orig)(id) = (void (^)(id))((id (*)(id, SEL))objc_msgSend)(
+        scene, sel_registerName("settings"));
+    (void)orig;
+    void (^blk)(id) = ^(id settings) { hide_offscreen(settings); };
+    if (OrigSceneBlock) OrigSceneBlock(scene, sel_registerName("updateSettingsWithBlock:"),
+                                        (id)_Block_copy(blk));
+    wlog("moved scene off-screen (%s)", why);
+}
+
 /* ---------- notify plumbing ---------- */
 
 static void on_voice_launch(int t) {
@@ -981,7 +995,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.7.12 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.8.0 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
