@@ -669,6 +669,15 @@ static int wks_launch_workspace(const char *bid, const char *urlstr) {
         opts = ((id (*)(id, SEL, id))objc_msgSend)(
             (id)OP, sel_registerName("optionsWithDictionary:"), dict);
     if (!opts) opts = dict;
+    /* +optionsWithDictionary: runs -_sanitizeAndValidatePayload, which drops
+     * keys it does not know — including __ActivateSuspended — so the workspace
+     * happily launched the app in the foreground. Re-apply the raw dictionary
+     * through the plain setter, which does not sanitize. */
+    if (opts != dict && resp(opts, "setDictionary:")) {
+        ((void (*)(id, SEL, id))objc_msgSend)(
+            opts, sel_registerName("setDictionary:"), dict);
+        hb("resan");
+    }
     call1(req, "setOptions:", opts);
 
     id sysSvc = cls0(SY, "sharedInstance");
@@ -910,7 +919,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.7.4 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.7.5 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
