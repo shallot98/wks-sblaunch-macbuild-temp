@@ -466,6 +466,7 @@ static void repl_fb_open(id self, SEL cmd, id app, id opts, id origin, id req, i
  * has proven it is alive, later transitions are suppressed inline (no flash). */
 static void pin_via_block(id scene, const char *why) {
     if (!resp(scene, "updateSettingsWithBlock:")) {
+        hb("noblockapi");
         wlog("no block API on scene (%s)", why);
         return;
     }
@@ -879,7 +880,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.7.1 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.7.2 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
