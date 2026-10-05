@@ -618,7 +618,26 @@ static int wks_launch_workspace(const char *bid, const char *urlstr) {
         return 0;
     }
 
-    id req = cls0(RQ, "request");
+    id req = nil;
+    /* +[FBSystemServiceOpenApplicationRequest request] answers nil on this
+     * build, which used to drop the whole launch to the foregrounding tier.
+     * Try every documented constructor and say which one took. */
+    const char *ctors[] = { "request", "openApplicationRequest",
+                            "defaultRequest", "new", NULL };
+    const char *ctorTags[] = { "reqa", "reqb", "reqc", "reqd", NULL };
+    for (int i = 0; ctors[i]; i++) {
+        if (!cresp(RQ, ctors[i])) continue;
+        req = ((id (*)(id, SEL))objc_msgSend)(
+            (id)RQ, sel_registerName(ctors[i]));
+        if (req) { hb(ctorTags[i]); break; }
+    }
+    if (!req) {
+        id alloc = ((id (*)(id, SEL))objc_msgSend)(
+            (id)RQ, sel_registerName("alloc"));
+        if (alloc && resp(alloc, "init"))
+            req = ((id (*)(id, SEL))objc_msgSend)(alloc, sel_registerName("init"));
+        if (req) hb("reqinit");
+    }
     if (!req) {
         wlog("no FBSystemServiceOpenApplicationRequest");
         hb("wreq");
@@ -891,7 +910,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.7.3 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.7.4 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
