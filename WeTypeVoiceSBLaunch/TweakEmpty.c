@@ -605,6 +605,7 @@ static int wks_launch_workspace(const char *bid, const char *urlstr) {
     if (!PM || !RQ || !OP || !SY || !WB) {
         wlog("ws classes missing PM=%p RQ=%p OP=%p SY=%p WB=%p",
              (void *)PM, (void *)RQ, (void *)OP, (void *)SY, (void *)WB);
+        hb("wcls");
         return 0;
     }
 
@@ -613,12 +614,14 @@ static int wks_launch_workspace(const char *bid, const char *urlstr) {
     id sbProc = msg0(procs, "firstObject");
     if (!sbProc) {
         wlog("no springboard FBApplicationProcess");
+        hb("wproc");
         return 0;
     }
 
     id req = cls0(RQ, "request");
     if (!req) {
         wlog("no FBSystemServiceOpenApplicationRequest");
+        hb("wreq");
         return 0;
     }
     call1(req, "setClientProcess:", sbProc);
@@ -627,7 +630,7 @@ static int wks_launch_workspace(const char *bid, const char *urlstr) {
     call1(req, "setBundleIdentifier:", nsstr(bid));
 
     id dict = nsnewdict();
-    if (!dict) return 0;
+    if (!dict) { hb("wdict"); return 0; }
     id yes = nsnum_yes();
     dict_set(dict, "__ActivateSuspended", yes);
     dict_set(dict, "processLaunchIntent", nsnum_int(4));
@@ -654,11 +657,13 @@ static int wks_launch_workspace(const char *bid, const char *urlstr) {
     if (!ws) ws = cls0(WB, "_instanceIfExists");
     if (!sysSvc || !ws) {
         wlog("no FBSystemService sharedInstance / SBMainWorkspace");
+        hb("wws");
         return 0;
     }
     SEL sel = sel_registerName("systemService:handleOpenApplicationRequest:withCompletion:");
     if (!resp(ws, "systemService:handleOpenApplicationRequest:withCompletion:")) {
         wlog("workspace handle selector missing");
+        hb("wsel");
         return 0;
     }
     void (^done)(id) = ^(id err) { wlog("ws open err=%s", cstr(err)); };
