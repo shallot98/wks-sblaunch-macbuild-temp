@@ -495,8 +495,21 @@ static void schedule_retire(id scene) {
  * the first parameter of updateSettings:withTransitionContext: is not a
  * FBSSceneSettings we may replace. Observe only, and suppress through the
  * block-based API, which mutates the object FrontBoard itself provides. */
+static id gLastScene;
+
+/* The file is plain C (no ARC), so keep the scene alive by hand: an async
+ * notify must never message a scene that FrontBoard already dropped. */
+static void remember_scene(id scene) {
+    if (gLastScene == scene) return;
+    if (gLastScene)
+        ((void (*)(id, SEL))objc_msgSend)(gLastScene, sel_registerName("release"));
+    gLastScene = scene
+        ? ((id (*)(id, SEL))objc_msgSend)(scene, sel_registerName("retain")) : nil;
+}
+
 static void note_transition(id scene, const char *evt) {
     if (!scene_is_wetype(scene)) return;
+    remember_scene(scene);
     hb(evt);
     if (!token_valid()) return;
     if (ui_locked()) return;
@@ -508,10 +521,10 @@ static void note_transition(id scene, const char *evt) {
          * visible until a later transition reached the block API. Suppress on
          * the first one instead; the 0.7.5 run proved the ASR keeps working
          * once the scene is backgrounded. */
-        if (now_s() >= gQuietUntil) {
-            gQuietUntil = now_s() + 0.6;
-            pin_via_block(scene, "first");
-        }
+        /* Do not suppress here: pinning before the capture engine produces its
+         * first packet leaves setActive answering ok while the engine delivers
+         * nothing (0.7.6 and 0.7.7 both saw zero PCM). The host tweak posts
+         * com.wxkb.host.pcm1 the moment audio really flows, and that pins. */
         wlog("allow activation, retire scheduled (%s)", evt);
         return;
     }
@@ -790,6 +803,15 @@ static void on_host_ready(int t) {
     token_clear("host-ready");
 }
 
+static void on_pcm_first(int t) {
+    (void)t;
+    if (disabled() || !token_valid()) return;
+    if (!gLastScene) { wlog("pcm1 without a known scene"); return; }
+    gQuietUntil = now_s() + 0.6;
+    pin_via_block(gLastScene, "pcm1");
+    wlog("pinned on first pcm");
+}
+
 static void register_notify(void) {
     if (gNotifyRegistered) return;
     int tok = 0, tok2 = 0;
@@ -802,6 +824,9 @@ static void register_notify(void) {
     }
     notify_register_dispatch(kNotifyReady, &tok2, dispatch_get_main_queue(),
                              ^(int t) { on_host_ready(t); });
+    static int tok3 = 0;
+    notify_register_dispatch("com.wxkb.host.pcm1", &tok3, dispatch_get_main_queue(),
+                             ^(int t) { on_pcm_first(t); });
 }
 
 /* ---------- install ---------- */
@@ -933,7 +958,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.7.7 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.7.8 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
