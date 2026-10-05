@@ -828,8 +828,13 @@ static void on_voice_launch(int t) {
 
     if (wxkb_pid() > 0) {
         take_token_if_mine("already-up");
-        wlog("host already up — pin only");
-        hb("pinned");
+        remember_voice_host();
+        /* Both 17:12 and 17:25 were taps onto an already-running wxkb: the
+         * session reported setact-ok/cap3-ret and then delivered zero frames,
+         * because that instance never re-activated for this tap. A warm host
+         * therefore needs the same real activation a cold one gets. */
+        if (!frontmost_is_wetype()) wks_launch_workspace(kWeTypeBundle, nil);
+        wlog("host already up — requested a real activation");
         return;
     }
     if (frontmost_is_wetype()) {
@@ -1014,7 +1019,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.8.4 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.8.5 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
