@@ -50,6 +50,8 @@ static const char *kPendingFile = "/var/mobile/Library/Preferences/wks_pending_v
 static char gVoiceHost[128];
 static const char *kOffFile = "/var/mobile/Library/Preferences/com.wxkb.sblaunch.off";
 static const char *kBootsFile = "/var/mobile/Library/Preferences/wks_sblaunch.boots";
+/* A/B lever: re-enable hiding before audio is proven, without a rebuild. */
+static const char *kEarlyPinFile = "/var/mobile/Library/Preferences/com.wxkb.sblaunch.earlypin";
 
 static double gVoiceUntil;   /* legacy: mutate an official request that still arrives */
 static double gTokUntil;     /* voice-launch token: this suspended open is ours */
@@ -57,6 +59,7 @@ static double gQuietUntil;   /* debounce so our own retire does not loop */
 static double gLastKick;
 static int gTokRetired;
 static int gActivated;      /* this wxkb instance already got a real activation */
+static int gProven;         /* mic frames actually flowed */
 static int gInstalled;
 static int gApplyHooked;
 static int gApplyReported;
@@ -127,7 +130,7 @@ static int token_valid(void) {
 static void token_grant(const char *why) {
     gTokUntil = now_s() + 20.0;
     gTokRetired = 0;
-    if (wxkb_pid() <= 0) gActivated = 0;
+    if (wxkb_pid() <= 0) { gActivated = 0; gProven = 0; }
     hb("token");
     wlog("token grant 20s (%s)", why);
 }
@@ -367,11 +370,16 @@ static void pin_bg(id settings) {
     hb("pinned");
 }
 
+static int early_pin_allowed(void) {
+    return access(kEarlyPinFile, F_OK) == 0;
+}
+
 static int should_pin(id scene) {
-    if (!token_valid()) return 0;
     if (!scene_is_wetype(scene)) return 0;
     if (ui_locked()) return 0;
-    return 1;
+    if (gProven) return 1;
+    if (!token_valid()) return 0;
+    return early_pin_allowed();
 }
 
 static id pinned_copy(id settings) {
@@ -555,8 +563,12 @@ static void note_transition(id scene, const char *evt) {
          * first-packet was; and pcm1 remains as a second chance in case this
          * transition is not the one that brings it forward. */
         gQuietUntil = now_s() + 0.6;
-        pin_via_block(scene, "first");
-        wlog("allow activation, moved off screen immediately (%s)", evt);
+        if (should_pin(scene)) {
+            pin_via_block(scene, "first");
+            wlog("moved off screen immediately (%s)", evt);
+        } else {
+            wlog("audio not proven yet, letting it activate visibly (%s)", evt);
+        }
         return;
     }
     if (now_s() < gQuietUntil) return;
@@ -841,11 +853,12 @@ static void on_host_ready(int t) {
 
 static void on_pcm_first(int t) {
     (void)t;
-    if (disabled() || !token_valid()) return;
+    if (disabled()) return;
+    gProven = 1;
     if (!gLastScene) { wlog("pcm1 without a known scene"); return; }
     gQuietUntil = now_s() + 0.6;
-    pin_via_block(gLastScene, "pcm1");
-    wlog("pinned on first pcm");
+    if (should_pin(gLastScene)) pin_via_block(gLastScene, "pcm1");
+    wlog("audio proven, scene may now be hidden");
 }
 
 static void register_notify(void) {
@@ -994,7 +1007,7 @@ static void ctor(void) {
      * cannot write the shared preference paths, so a missing log file proves
      * nothing. The root daemon observes this notify instead. */
     notify_post("com.wxkb.sblaunch.hello");
-    wlog("v0.8.2 ctor pn=%s", pn ? pn : "?");
+    wlog("v0.8.3 ctor pn=%s", pn ? pn : "?");
     if (disabled()) {
         wlog("disabled, exit");
         return;
